@@ -18,88 +18,138 @@ with open(HTML_FILE, "r", encoding="utf-8") as f:
 
 articles = []
 
+def extract_article(container, link_selector, title_selectors, desc_selector, time_selector, img_selector):
+    """Generic function to extract article data"""
+    results = []
+    for item in soup.select(container):
+        link = item.select_one(link_selector)
+        if not link:
+            continue
+        url = link.get("href")
+        if not url:
+            continue
+        
+        # Try multiple title selectors
+        title = None
+        for selector in title_selectors:
+            title_tag = item.select_one(selector)
+            if title_tag:
+                # Remove shoulder span if present
+                shoulder = title_tag.select_one("span.shoulder")
+                if shoulder:
+                    shoulder.decompose()
+                title = title_tag.get_text(strip=True)
+                break
+        
+        if not title:
+            continue
+        
+        # Extract description
+        desc_tag = item.select_one(desc_selector)
+        desc = desc_tag.get_text(strip=True) if desc_tag else ""
+        
+        # Extract time
+        time_tag = item.select_one(time_selector)
+        pub = time_tag.get_text(strip=True) if time_tag else ""
+        # Clean up time text
+        if pub:
+            pub = pub.replace("", "").strip()
+        
+        # Extract image
+        img_tag = item.select_one(img_selector)
+        img = img_tag.get("src", "") if img_tag else ""
+        
+        results.append({"url": url, "title": title, "desc": desc, "pub": pub, "img": img})
+    return results
+
 # --- 1. DCatLead (main lead) ---
-for lead in soup.select("div.DCatLead a[href*='/opinion/article/']"):
-    url = lead.get("href")
-    h1 = lead.select_one("h1")
-    title = h1.get_text(strip=True) if h1 else None
-    if not title:
-        continue
-    desc_tag = lead.select_one("p.CatDesc")
-    desc = desc_tag.get_text(strip=True) if desc_tag else ""
-    pub_tag = lead.select_one(".publishTime")
-    pub = pub_tag.get_text(strip=True) if pub_tag else ""
-    img_tag = lead.select_one("img")
-    img = img_tag.get("src", "") if img_tag else ""
-    articles.append({"url": url, "title": title, "desc": desc, "pub": pub, "img": img})
+articles.extend(extract_article(
+    "div.DCatLead",
+    "a[href*='/opinion/']",
+    ["h1", "h2", "h3"],
+    "p.CatDesc, p.summary3, p",
+    ".publishTime, p.time",
+    "img"
+))
 
 # --- 2. Catcards (category cards) ---
-for card in soup.select("div.Catcards a[href*='/opinion/article/']"):
-    url = card.get("href")
-    h3 = card.select_one("h3")
-    title = h3.get_text(strip=True) if h3 else None
-    if not title:
-        continue
-    desc_tag = card.select_one("p")
-    desc = desc_tag.get_text(strip=True) if desc_tag else ""
-    pub_tag = card.select_one(".publishTime")
-    pub = pub_tag.get_text(strip=True) if pub_tag else ""
-    img_tag = card.select_one("img")
-    img = img_tag.get("src", "") if img_tag else ""
-    articles.append({"url": url, "title": title, "desc": desc, "pub": pub, "img": img})
+articles.extend(extract_article(
+    "div.Catcards",
+    "a[href*='/opinion/']",
+    ["h3", "h2", "h1"],
+    "p",
+    ".publishTime, p.time",
+    "img"
+))
 
 # --- 3. CatListNews (sub news) ---
-for sub in soup.select("div.CatListNews a[href*='/opinion/article/']"):
-    url = sub.get("href")
-    h3 = sub.select_one("h3")
-    title = h3.get_text(strip=True) if h3 else None
-    if not title:
-        continue
-    desc_tag = sub.select_one("p")
-    desc = desc_tag.get_text(strip=True) if desc_tag else ""
-    pub_tag = sub.select_one(".publishTime")
-    pub = pub_tag.get_text(strip=True) if pub_tag else ""
-    img_tag = sub.select_one("img")
-    img = img_tag.get("src", "") if img_tag else ""
-    articles.append({"url": url, "title": title, "desc": desc, "pub": pub, "img": img})
+articles.extend(extract_article(
+    "div.CatListNews",
+    "a[href*='/opinion/']",
+    ["h3", "h2", "h1"],
+    "p",
+    ".publishTime, p.time",
+    "img"
+))
 
-# --- 4. New format: itemDiv within itemMainDiv ---
-for item_div in soup.select("div.itemMainDiv div.itemDiv"):
-    link = item_div.select_one("a.linkOverlay")
-    if not link:
-        continue
+# --- 4. itemDiv format (new format) ---
+articles.extend(extract_article(
+    "div.itemDiv",
+    "a.linkOverlay, a[href*='/opinion/']",
+    ["h2.title3", "h3", "h2", "h1"],
+    "p.summary3, p",
+    "p.time, .publishTime",
+    "img"
+))
+
+# --- 5. Catch-all: any link with /opinion/ in href ---
+for link in soup.select("a[href*='/opinion/']"):
     url = link.get("href")
-    if not url or "/opinion/" not in url:
+    if not url:
         continue
     
-    # Extract title from h2
-    h2 = item_div.select_one("h2.title3")
-    if h2:
-        # Remove shoulder span if present
-        shoulder = h2.select_one("span.shoulder")
-        if shoulder:
-            shoulder.decompose()
-        title = h2.get_text(strip=True)
+    # Try to find title in or near the link
+    title = None
+    # Check if link itself has text
+    if link.get_text(strip=True) and not link.find("img"):
+        title = link.get_text(strip=True)
     else:
-        continue
+        # Look for title in parent or nearby elements
+        parent = link.parent
+        if parent:
+            for tag in ["h1", "h2", "h3", "h4"]:
+                title_tag = parent.find(tag)
+                if title_tag:
+                    shoulder = title_tag.select_one("span.shoulder")
+                    if shoulder:
+                        shoulder.decompose()
+                    title = title_tag.get_text(strip=True)
+                    break
     
     if not title:
         continue
     
-    # Extract description
-    desc_tag = item_div.select_one("p.summary3")
-    desc = desc_tag.get_text(strip=True) if desc_tag else ""
+    # Find description
+    desc = ""
+    parent = link.parent
+    if parent:
+        desc_tag = parent.find("p", class_=lambda x: x and "summary" in x) or parent.find("p")
+        if desc_tag:
+            desc = desc_tag.get_text(strip=True)
     
-    # Extract time
-    time_tag = item_div.select_one("p.time")
-    pub = time_tag.get_text(strip=True) if time_tag else ""
-    # Remove icon text
-    if pub:
-        pub = pub.replace("", "").strip()
+    # Find time
+    pub = ""
+    if parent:
+        time_tag = parent.find(class_=lambda x: x and ("time" in x.lower() if x else False))
+        if time_tag:
+            pub = time_tag.get_text(strip=True).replace("", "").strip()
     
-    # Extract image
-    img_tag = item_div.select_one("img")
-    img = img_tag.get("src", "") if img_tag else ""
+    # Find image
+    img = ""
+    if parent:
+        img_tag = parent.find("img")
+        if img_tag:
+            img = img_tag.get("src", "")
     
     articles.append({"url": url, "title": title, "desc": desc, "pub": pub, "img": img})
 
@@ -117,11 +167,19 @@ else:
 channel = root.find("channel")
 if channel is None:
     channel = ET.SubElement(root, "channel")
-    ET.SubElement(channel, "title").text = "Samakal Opinion"
-    ET.SubElement(channel, "link").text = "https://samakal.com/opinion"
-    ET.SubElement(channel, "description").text = "Latest opinion articles from Samakal"
+    ET.SubElement(channel, "title").text = "Opinion Articles"
+    ET.SubElement(channel, "link").text = "https://protidinerbangladesh.com/opinion"
+    ET.SubElement(channel, "description").text = "Latest opinion articles"
 
-# Deduplicate existing URLs
+# Deduplicate by URL (both in new articles and existing XML)
+seen_urls = set()
+unique_articles = []
+for art in articles:
+    if art["url"] not in seen_urls:
+        seen_urls.add(art["url"])
+        unique_articles.append(art)
+
+# Get existing URLs from XML
 existing = set()
 for item in channel.findall("item"):
     link_tag = item.find("link")
@@ -129,7 +187,8 @@ for item in channel.findall("item"):
         existing.add(link_tag.text.strip())
 
 # Append new unique articles
-for art in articles:
+new_count = 0
+for art in unique_articles:
     if art["url"] in existing:
         continue
     item = ET.SubElement(channel, "item")
@@ -139,6 +198,7 @@ for art in articles:
     ET.SubElement(item, "pubDate").text = art["pub"] if art["pub"] else datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S +0000")
     if art["img"]:
         ET.SubElement(item, "enclosure", url=art["img"], type="image/jpeg")
+    new_count += 1
 
 # Trim to last MAX_ITEMS
 all_items = channel.findall("item")
@@ -150,5 +210,8 @@ if len(all_items) > MAX_ITEMS:
 tree = ET.ElementTree(root)
 tree.write(XML_FILE, encoding="utf-8", xml_declaration=True)
 
-print(f"Scraped {len(articles)} articles total")
+print(f"Found {len(articles)} total articles (including duplicates)")
+print(f"Unique articles: {len(unique_articles)}")
+print(f"New articles added: {new_count}")
+print(f"Total in XML: {len(channel.findall('item'))}")
 print(f"XML saved to {XML_FILE}")
