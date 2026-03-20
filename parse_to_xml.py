@@ -6,7 +6,7 @@ from datetime import datetime
 
 HTML_FILE = "opinion.html"
 XML_FILE = "articles.xml"
-MAX_ITEMS = 500
+MAX_ITEMS = 20
 
 # Load HTML
 if not os.path.exists(HTML_FILE):
